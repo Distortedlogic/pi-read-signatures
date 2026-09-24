@@ -1,0 +1,9 @@
+language js
+
+or {
+	function_declaration(body=$b),
+	method_definition(body=$b),
+	arrow_function(body=$b)
+} where {
+	$b => `{}`
+}

@@ -1,0 +1,5 @@
+language python
+
+function_definition(body=$b) where {
+	$b => `...`
+}
