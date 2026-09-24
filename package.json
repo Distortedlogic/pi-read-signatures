@@ -30,6 +30,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"files": [
+		"AGENTS.yml",
 		"grit",
 		"src"
 	],
