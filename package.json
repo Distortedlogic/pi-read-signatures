@@ -15,6 +15,11 @@
 	"engines": {
 		"node": ">=22.19.0"
 	},
+	"exports": {
+		".": "./src/index.ts",
+		"./fold": "./src/fold.ts",
+		"./languages": "./src/languages.ts"
+	},
 	"scripts": {
 		"check": "npm run typecheck && npm run lint && npm test",
 		"format": "biome check --write .",
