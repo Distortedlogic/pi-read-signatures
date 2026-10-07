@@ -8,6 +8,20 @@ import { foldSignatures } from "../src/fold.ts";
 import registerReadSignatures from "../src/index.ts";
 import { signatureLanguage } from "../src/languages.ts";
 
+type RegisteredExecute = (...args: unknown[]) => Promise<unknown>;
+
+function registeredExecute(): RegisteredExecute {
+	let registeredTool: unknown;
+	registerReadSignatures({
+		registerTool: (tool: unknown) => {
+			registeredTool = tool;
+		},
+	} as unknown as ExtensionAPI);
+	const execute = (registeredTool as { execute?: RegisteredExecute }).execute;
+	if (!execute) throw new Error("read_signatures was not registered");
+	return execute;
+}
+
 test("folds callable bodies across supported languages", async (t) => {
 	const project = await mkdtemp(join(tmpdir(), "pi-read-signatures-"));
 	t.after(async () => rm(project, { recursive: true, force: true }));
@@ -54,19 +68,7 @@ test("read_signatures folds the complete file before bounded output", async (t) 
 		`export function first() { return "${payload}"; }\nexport function second() { return 2; }\n`,
 	);
 
-	let registeredTool: unknown;
-	registerReadSignatures({
-		registerTool: (tool: unknown) => {
-			registeredTool = tool;
-		},
-	} as unknown as ExtensionAPI);
-	const execute = (
-		registeredTool as {
-			execute?: (...args: unknown[]) => Promise<unknown>;
-		}
-	).execute;
-	if (!execute) assert.fail("read_signatures was not registered");
-
+	const execute = registeredExecute();
 	const firstResult = (await execute(
 		"signature-read-1",
 		{ path: "api.ts", limit: 1 },
@@ -90,10 +92,26 @@ test("read_signatures folds the complete file before bounded output", async (t) 
 		{ cwd: project },
 	)) as { content: Array<{ text: string }> };
 	assert.match(secondResult.content[0]?.text ?? "", /function second/);
-	await assert.rejects(
-		execute("signature-read-unsupported", { path: "unsupported.txt" }, AbortSignal.timeout(5_000), undefined, {
+});
+
+test("read_signatures rejects unsafe or invalid sources", async (t) => {
+	const project = await mkdtemp(join(tmpdir(), "pi-read-signatures-"));
+	t.after(async () => rm(project, { recursive: true, force: true }));
+	await Promise.all([
+		writeFile(join(project, "invalid.ts"), Buffer.from([0xff])),
+		writeFile(join(project, "oversized.ts"), Buffer.alloc(2 * 1024 * 1024 + 1, 0x20)),
+		writeFile(join(project, "small.ts"), "export const value = 1;\n"),
+		mkdir(join(project, "directory.ts")),
+	]);
+	const execute = registeredExecute();
+	const run = (path: string, parameters: Record<string, unknown> = {}) =>
+		execute("signature-read-safety", { path, ...parameters }, AbortSignal.timeout(5_000), undefined, {
 			cwd: project,
-		}),
-		/does not support.*Use read/,
-	);
+		});
+
+	await assert.rejects(run("unsupported.txt"), /does not support.*Use read/);
+	await assert.rejects(run("directory.ts"), /Not a regular file/);
+	await assert.rejects(run("invalid.ts"), /requires UTF-8 text/);
+	await assert.rejects(run("oversized.ts"), /source limit/);
+	await assert.rejects(run("small.ts", { offset: 99 }), /beyond the folded output/);
 });
